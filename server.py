@@ -107,13 +107,12 @@ def game_logic_thread():
                             # 장애물 파괴 이벤트 (폭발 범위 추가 감소)
                             game_state['explosions'].append({'x': obs['x'], 'y': obs['y'], 'r': obs['r'] // 4, 'type': 'obs', 'time': now})
                             
-                            # 보상: 장애물 크기만큼 LV 추가 (최대 3)
                             if attacker:
                                 gain = obs['reward_lv']
                                 attacker['lv'] += gain
                                 update_player_stats(attacker)
-                                # 레벨업 시 체력 100% 회복
-                                attacker['hp'] = attacker['max_hp'] # min(attacker['hp'] + (attacker['hp'] * 0.25), attacker['max_hp'])
+                            
+                                attacker['hp'] = attacker['max_hp']
 
                             game_state['obstacles'].pop(i)
                             new_obs = spawn_obstacle()
@@ -153,7 +152,7 @@ def game_logic_thread():
                                 attacker['lv'] += xp_gain
                                 update_player_stats(attacker)
                                 # 레벨업 시 체력 100% 회복
-                                attacker['hp'] = attacker['max_hp'] # min(attacker['hp'] + (attacker['hp'] * 0.25), attacker['max_hp'])
+                                attacker['hp'] = attacker['max_hp']
                                 
                                 log_msg = f"{attacker['name']}(Lv.{int(attacker['lv'])}) 처치 -> {p['name']}(Lv.{int(p['lv'])})"
                                 game_state['kill_logs'].append({'msg': log_msg, 'time': now + 4})
@@ -235,7 +234,7 @@ def handle_client(conn, p_id):
                             p['y'] = me['y']
                             p['ba'] = me['ba']
                             p['ta'] = me['ta']
-                            # 닉네임과 색상은 클라이언트가 보낸 것으로 계속 업데이트 (또는 최초 1회만 해도 됨)
+                            # 닉네임과 색상은 클라이언트가 보낸 것으로 계속 업데이트 
                             p['name'] = me['name']
                             p['c'] = me['c']
 
@@ -244,7 +243,7 @@ def handle_client(conn, p_id):
                     if not shooter['dead']:
                         for b in client_data['new_bullets']:
                             b['p_id'] = p_id
-                            # 사거리(수명) 계산: 기본 1.5초 + 레벨당 0.1초 증가
+                            # 사거리(수명) 계산
                             b['life'] = 1.5 + (shooter['lv'] * 0.1)
                             # 총알 크기 계산: 기본 + 레벨
                             b['radius'] = 4 + (shooter['lv'] * 0.5)
