@@ -6,8 +6,9 @@ import pickle
 from collections import deque
 
 WIDTH, HEIGHT = 800, 600
-HOST = '52.79.106.125' 
-PORT = 80
+HOST = '127.0.0.1' 
+PORT = 8080
+UDPPORT = 9000
 
 # 색상
 WHITE = (255, 255, 255)
@@ -41,8 +42,11 @@ class Network:
     def __init__(self):
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.serveraddr = (HOST, PORT)
+        self.udp_server_addr = (HOST, UDPPORT) # UDP 전용 주소 설정
         self.p_id = None
         self.connected = False
+        self.udpsock = None
 
     def connect(self):
         try:
@@ -68,6 +72,11 @@ class Network:
 
             self.p_id = pickle.loads(self.client.recv(2048))
             self.connected = True
+
+            # create udp socket
+            self.udpsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.udpsock.settimeout(0.1) # 0.1초 이상 응답 없으면 포기
+            #self.udpsock.connect()
             return True
         except Exception as e:
             print(f"Connection error: {e}") 
@@ -88,6 +97,17 @@ class Network:
                 if not chunk: return None
                 recv_data += chunk
             return pickle.loads(recv_data)
+        except: return None
+
+    def send_by_udp(self, data):
+        try:
+            pickled = pickle.dumps(data)
+            self.udpsock.sendto(pickled, self.udp_server_addr)
+            
+            raw_data, _ = self.udpsock.recvfrom(65535)
+            return pickle.loads(raw_data)
+        except socket.timeout:
+            return None # 유실 시 이전 프레임 데이터 유지 등을 위해 None 반환
         except: return None
 
 # 닉네임 입력 화면
@@ -382,6 +402,7 @@ def main():
         me.move(keys, last_obstacles, last_players)
 
         send_data = {
+            'p_id': n.p_id,  # 서버가 식별할 수 있도록 추가
             'me': {
                 'x': int(me.x), 'y': int(me.y), 'ba': int(me.ba), 'ta': int(me.ta),
                 'name': me.name, 'c': me.color, 'respawn_req': me.respawn_req
@@ -391,7 +412,7 @@ def main():
         me.bullets_q.clear()
         me.respawn_req = False
 
-        state = n.send(send_data)
+        state = n.send_by_udp(send_data)
         if not state: break
 
         last_obstacles = state['obstacles']

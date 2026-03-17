@@ -6,8 +6,15 @@ import math
 import time
 
 HOST = '0.0.0.0'
-PORT = 80
+PORT = 8080
+UDP_PORT = 9000
+udp_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+udp_server.bind((HOST, UDP_PORT))
+
+client_udp_addrs = {}
+
 WIDTH, HEIGHT = 800, 600
+
 
 # 데이터 보호를 위한 Lock
 data_lock = threading.Lock()
@@ -59,6 +66,44 @@ def update_player_stats(p):
     # 레벨이 오를수록 커짐 (최대 3배)
     # 체력: 기본 10 + 레벨당 5
     p['max_hp'] = 10 + (int(p['lv']) * 5)
+
+def udp_receive_thread():
+    while True:
+        try:
+            # 1. 데이터 수신
+            raw_data, addr = udp_server.recvfrom(65535)
+            client_data = pickle.loads(raw_data)
+            
+            # 클라이언트가 보낸 데이터에 p_id가 포함되어 있다고 가정
+            p_id = client_data.get('p_id')
+            if p_id is None: continue
+            
+            # 2. 클라이언트 주소 업데이트 (나중에 응답을 보내기 위함)
+            with data_lock:
+                client_udp_addrs[p_id] = addr
+                
+                # 3. 게임 로직 업데이트 (기존 handle_client의 로직 이동)
+                if 'me' in client_data and p_id in game_state['players']:
+                    me = client_data['me']
+                    p = game_state['players'][p_id]
+                    if not p['dead']:
+                        p['x'], p['y'] = me['x'], me['y']
+                        p['ba'], p['ta'] = me['ba'], me['ta']
+                        p['name'], p['c'] = me['name'], me['c']
+                
+                # 4. 응답 전송 (현재 전체 상태 전송)
+                reply_data = {
+                    'players': game_state['players'],
+                    'obstacles': game_state['obstacles'],
+                    'bullets': game_state['bullets'],
+                    'explosions': game_state['explosions'],
+                    'kill_logs': game_state['kill_logs']
+                }
+                serialized = pickle.dumps(reply_data)
+                udp_server.sendto(serialized, addr)
+                
+        except Exception as e:
+            print(f"UDP Receive Error: {e}")
 
 def game_logic_thread():
     """서버 내부 물리 연산 스레드"""
@@ -172,103 +217,63 @@ def game_logic_thread():
 
         time.sleep(0.016)
 
-def handle_client(conn, p_id):
+def handle_client_tcp(conn, p_id):
+    print(f"[TCP] Client {p_id} connected.")
     try:
-        # 가짜 HTTP 요청 수신 및 무시
-        request = conn.recv(4096)
-        if not request.startswith(b'GET / HTTP/1.1'):
-             print(f"Invalid handshake from {p_id}")
-             conn.close()
-             return
+        # 가짜 HTTP 핸드셰이크
+        request = conn.recv(1024)
+        conn.sendall(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+        
+        # ID 부여
+        conn.send(pickle.dumps(p_id))
 
-        # 가짜 HTTP 응답 전송
-        response = (
-            b"HTTP/1.1 101 Switching Protocols\r\n"
-            b"Upgrade: websocket\r\n"
-            b"Connection: Upgrade\r\n\r\n"
-        )
-        conn.sendall(response)
-    except Exception as e:
-        print(f"Handshake with {p_id} failed: {e}")
-        conn.close()
-        return
-    conn.send(pickle.dumps(p_id))
-    
-    with data_lock:
-        # 초기화
-        game_state['players'][p_id] = {
-            'x': -1000, 'y': -1000, 'name': 'Player', 
-            'hp': 10, 'max_hp': 10, 'lv': 1.0, 
-            'dead': False, 'ba': 0, 'ta': 0, 'c': (100,100,100)
-        }
+        with data_lock:
+            game_state['players'][p_id] = {
+                'x': -1000, 'y': -1000, 'name': 'Player', 
+                'hp': 10, 'max_hp': 10, 'lv': 1.0, 
+                'dead': False, 'ba': 0, 'ta': 0, 'c': (100,100,100)
+            }
 
-    while True:
-        try:
+        while True:
             header = conn.recv(4)
             if not header: break
             size = int.from_bytes(header, 'big')
             
-            recv_bytes = b''
-            while len(recv_bytes) < size:
-                chunk = conn.recv(min(4096, size - len(recv_bytes)))
+            # 본문 수신
+            chunks = []
+            bytes_recvd = 0
+            while bytes_recvd < size:
+                chunk = conn.recv(min(size - bytes_recvd, 4096))
                 if not chunk: break
-                recv_bytes += chunk
+                chunks.append(chunk)
+                bytes_recvd += len(chunk)
             
-            if len(recv_bytes) < size: break
-            client_data = pickle.loads(recv_bytes)
+            event_data = pickle.loads(b''.join(chunks))
 
             with data_lock:
-                if 'me' in client_data:
-                    me = client_data['me']
-                    if p_id in game_state['players']:
-                        p = game_state['players'][p_id]
-                        
-                        # 리스폰 처리
-                        if me.get('respawn_req'):
-                            p['hp'] = 10; p['max_hp'] = 10; p['lv'] = 1.0; p['dead'] = False
-                            p['x'] = random.randint(100, WIDTH-100)
-                            p['y'] = random.randint(100, HEIGHT-100)
-                        
-                        if not p['dead']:
-                            p['x'] = me['x']
-                            p['y'] = me['y']
-                            p['ba'] = me['ba']
-                            p['ta'] = me['ta']
-                            # 닉네임과 색상은 클라이언트가 보낸 것으로 계속 업데이트 
-                            p['name'] = me['name']
-                            p['c'] = me['c']
+                p = game_state['players'].get(p_id)
+                if not p: break
 
-                if 'new_bullets' in client_data and p_id in game_state['players']:
-                    shooter = game_state['players'][p_id]
-                    if not shooter['dead']:
-                        for b in client_data['new_bullets']:
-                            b['p_id'] = p_id
-                            # 사거리(수명) 계산
-                            b['life'] = 1.5 + (shooter['lv'] * 0.1)
-                            # 총알 크기 계산: 기본 + 레벨
-                            b['radius'] = 4 + (shooter['lv'] * 0.5)
-                            game_state['bullets'].append(b)
+                # 리스폰 이벤트 (TCP)
+                if event_data.get('respawn_req'):
+                    p.update({'hp': 10, 'max_hp': 10, 'lv': 1.0, 'dead': False})
+                    p['x'], p['y'] = random.randint(100, 700), random.randint(100, 500)
 
-                # 클라이언트에게 보낼 데이터 (전체 상태)
-                reply_data = {
-                    'players': game_state['players'],
-                    'obstacles': game_state['obstacles'],
-                    'bullets': game_state['bullets'],
-                    'explosions': game_state['explosions'],
-                    'kill_logs': game_state['kill_logs']
-                }
+                # 총알 발사 이벤트 (TCP)
+                if 'new_bullets' in event_data and not p['dead']:
+                    for b in event_data['new_bullets']:
+                        b.update({'p_id': p_id, 'life': 1.5 + (p['lv']*0.1), 'radius': 4 + (p['lv']*0.5)})
+                        game_state['bullets'].append(b)
+    except:
+        pass
+    finally:
+        with data_lock:
+            if p_id in game_state['players']: del game_state['players'][p_id]
+            if p_id in client_udp_addrs: del client_udp_addrs[p_id]
+        conn.close()
+        print(f"[TCP] Client {p_id} disconnected.")
 
-            serialized = pickle.dumps(reply_data)
-            conn.send(len(serialized).to_bytes(4, 'big') + serialized)
 
-        except Exception as e:
-            print(f"Client {p_id} Error: {e}")
-            break
-
-    with data_lock:
-        if p_id in game_state['players']:
-            del game_state['players'][p_id]
-    conn.close()
 
 def main():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -282,12 +287,13 @@ def main():
     print("RPG Tank Server Running...")
     
     threading.Thread(target=game_logic_thread, daemon=True).start()
+    threading.Thread(target=udp_receive_thread, daemon=True).start()
 
     cid = 0
     while True:
         conn, addr = server.accept()
         print(f"Joined: {addr}")
-        threading.Thread(target=handle_client, args=(conn, cid), daemon=True).start()
+        threading.Thread(target=handle_client_tcp, args=(conn, cid), daemon=True).start()
         cid += 1
 
 if __name__ == "__main__":
