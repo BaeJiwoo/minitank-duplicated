@@ -4,10 +4,21 @@ import pickle
 import random
 import math
 import time
+import os
+from dotenv import load_dotenv
 
-HOST = '0.0.0.0'
-PORT = 8080
-UDP_PORT = 9000
+# .env 파일의 내용을 환경 변수로 로드
+load_dotenv()
+
+# 환경 변수에서 값 가져오기 (기본값 설정 가능)
+HOST = os.getenv('HOST', '127.0.0.1')  # 값이 없으면 '127.0.0.1' 사용
+PORT = int(os.getenv('PORT', 8000))    # 포트는 숫자로 변환
+UDP_PORT = int(os.getenv('UDP_PORT', 9000))
+
+# 확인 출력
+print(f"서버 연결 설정: {HOST}:{PORT}")
+print(f"UDP 포트: {UDP_PORT}")
+
 udp_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 udp_server.bind((HOST, UDP_PORT))
 
