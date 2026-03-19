@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # 환경 변수에서 값 가져오기 (기본값 설정 가능)
-HOST = os.getenv('HOST', '127.0.0.1')  # 값이 없으면 '127.0.0.1' 사용
+HOST = '0.0.0.0'  # 값이 없으면 '127.0.0.1' 사용
 PORT = int(os.getenv('PORT', 8000))    # 포트는 숫자로 변환
 UDP_PORT = int(os.getenv('UDP_PORT', 9000))
 
