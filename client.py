@@ -89,7 +89,8 @@ class Network:
 
             # create udp socket
             self.udpsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.udpsock.settimeout(0.1) # 0.1초 이상 응답 없으면 포기
+            self.udpsock.settimeout(0.1) # 0.1초 이상 응답 없으면 포기'
+            #print("udpsock created")
             #self.udpsock.connect()
             return True
         except Exception as e:
@@ -121,6 +122,7 @@ class Network:
             raw_data, _ = self.udpsock.recvfrom(65535)
             return pickle.loads(raw_data)
         except socket.timeout:
+            print("timeout")
             return None # 유실 시 이전 프레임 데이터 유지 등을 위해 None 반환
         except: return None
 
