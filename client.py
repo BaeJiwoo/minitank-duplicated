@@ -89,7 +89,7 @@ class Network:
 
             # create udp socket
             self.udpsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.udpsock.settimeout(0.1) # 0.1초 이상 응답 없으면 포기
+            #self.udpsock.settimeout(0.1) # 0.1초 이상 응답 없으면 포기
             #self.udpsock.connect()
             return True
         except Exception as e:
