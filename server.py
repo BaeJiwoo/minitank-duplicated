@@ -232,8 +232,8 @@ def handle_client_tcp(conn, p_id):
     print(f"[TCP] Client {p_id} connected.")
     try:
         # 가짜 HTTP 핸드셰이크
-        #request = conn.recv(1024)
-        #conn.sendall(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+        request = conn.recv(1024)
+        conn.sendall(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
         
         # ID 부여
         conn.sendall(pickle.dumps(p_id))
